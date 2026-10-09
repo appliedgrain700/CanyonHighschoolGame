@@ -41,6 +41,7 @@ addEventListener("resize", () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
+
 // Mouse aiming: click the page to lock the mouse, then move it to turn
 let yaw = 0;
 renderer.domElement.addEventListener("click", () => {
@@ -63,6 +64,16 @@ addEventListener("mousedown", () => {
   scene.add(b);
   bullets.push(b);
 });
+
+// Target dummy
+const dummy = new THREE.Mesh(
+  new THREE.BoxGeometry(1, 2, 1),
+  new THREE.MeshStandardMaterial({ color: 0x3366ff })
+);
+dummy.position.set(0, 1, -10);
+dummy.userData.health = 100;
+scene.add(dummy);
+
 const speed = 0.15;
 
 function animate() {
@@ -81,6 +92,24 @@ function animate() {
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
     b.position.addScaledVector(b.userData.dir, 0.8);
+
+    // Hit check
+    if (dummy.visible && b.position.distanceTo(dummy.position) < 1.2) {
+      dummy.userData.health -= 20;
+      dummy.material.color.setHex(0xffffff);
+      setTimeout(() => dummy.material.color.setHex(0x3366ff), 80);
+      scene.remove(b);
+      bullets.splice(i, 1);
+      if (dummy.userData.health <= 0) {
+        dummy.visible = false;
+        setTimeout(() => {
+          dummy.userData.health = 100;
+          dummy.visible = true;
+        }, 3000);
+      }
+      continue;
+    }
+
     b.userData.life--;
     if (b.userData.life <= 0) {
       scene.remove(b);

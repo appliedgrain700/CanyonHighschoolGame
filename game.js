@@ -41,20 +41,60 @@ addEventListener("resize", () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
+// Mouse aiming: click the page to lock the mouse, then move it to turn
+let yaw = 0;
+renderer.domElement.addEventListener("click", () => {
+  renderer.domElement.requestPointerLock();
+});
+addEventListener("mousemove", (e) => {
+  if (document.pointerLockElement) yaw -= e.movementX * 0.003;
+});
 
+// Bullets
+const bullets = [];
+const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+addEventListener("mousedown", () => {
+  if (!document.pointerLockElement) return;
+  const b = new THREE.Mesh(new THREE.SphereGeometry(0.15), bulletMat);
+  b.position.copy(player.position);
+  b.position.y = 1.5;
+  b.userData.dir = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  b.userData.life = 100;
+  scene.add(b);
+  bullets.push(b);
+});
 const speed = 0.15;
 
 function animate() {
   requestAnimationFrame(animate);
 
-  if (keys.KeyW) player.position.z -= speed;
-  if (keys.KeyS) player.position.z += speed;
-  if (keys.KeyA) player.position.x -= speed;
-  if (keys.KeyD) player.position.x += speed;
+  // Move relative to where you're facing
+  const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  if (keys.KeyW) player.position.addScaledVector(forward, speed);
+  if (keys.KeyS) player.position.addScaledVector(forward, -speed);
+  if (keys.KeyD) player.position.addScaledVector(right, speed);
+  if (keys.KeyA) player.position.addScaledVector(right, -speed);
+  player.rotation.y = yaw;
 
-  // Camera follows behind and above the player
-  camera.position.set(player.position.x, player.position.y + 5, player.position.z + 8);
-  camera.lookAt(player.position);
+  // Move bullets
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+    b.position.addScaledVector(b.userData.dir, 0.8);
+    b.userData.life--;
+    if (b.userData.life <= 0) {
+      scene.remove(b);
+      bullets.splice(i, 1);
+    }
+  }
+
+  // Camera sits behind the player
+  camera.position.set(
+    player.position.x + Math.sin(yaw) * 8,
+    player.position.y + 4,
+    player.position.z + Math.cos(yaw) * 8
+  );
+  camera.lookAt(player.position.x, player.position.y + 1, player.position.z);
 
   renderer.render(scene, camera);
 }

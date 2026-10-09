@@ -52,10 +52,12 @@ document.body.appendChild(deathMsg);
 
 // ---------- Player health ----------
 let playerHealth = 100;
+let maxHealth = 100;
+let lastShot = 0;
 let dead = false;
 
 function updateHealthBar() {
-  healthFill.style.width = playerHealth + "%";
+    healthFill.style.width = (playerHealth / maxHealth) * 100 + "%";
 }
 
 function damagePlayer(amount) {
@@ -67,7 +69,7 @@ function damagePlayer(amount) {
     player.visible = false;
     deathMsg.style.display = "block";
     setTimeout(() => {
-      playerHealth = 100;
+      playerHealth = maxHealth;
       dead = false;
       player.position.set(0, 1, 0);
       player.visible = true;
@@ -103,7 +105,9 @@ addEventListener("mousemove", (e) => {
 const bullets = [];
 const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
 addEventListener("mousedown", () => {
-  if (!document.pointerLockElement || dead) return;
+    if (!document.pointerLockElement || dead) return;
+  if (performance.now() - lastShot < current.fireDelay) return;
+  lastShot = performance.now();
   const b = new THREE.Mesh(new THREE.SphereGeometry(0.15), bulletMat);
   b.position.copy(player.position);
   b.position.y = 1.5;
@@ -127,7 +131,30 @@ dummy.position.set(0, 1, -10);
 dummy.userData.health = 100;
 scene.add(dummy);
 
-const speed = 0.15;
+let speed = 0.15;
+
+// Teacher characters (change these numbers to balance them)
+const characters = {
+  1: { name: "Mr. Math", color: 0xff0000, health: 100, speed: 0.15, damage: 20, fireDelay: 300 },
+  2: { name: "Coach", color: 0xff8800, health: 200, speed: 0.11, damage: 35, fireDelay: 600 },
+  3: { name: "Science", color: 0x9b59b6, health: 70, speed: 0.2, damage: 10, fireDelay: 120 },
+};
+let current = characters[1];
+
+function selectCharacter(num) {
+  current = characters[num];
+  player.material.color.setHex(current.color);
+  maxHealth = current.health;
+  playerHealth = maxHealth;
+  speed = current.speed;
+  updateHealthBar();
+}
+addEventListener("keydown", (e) => {
+  if (e.code === "Digit1") selectCharacter(1);
+  if (e.code === "Digit2") selectCharacter(2);
+  if (e.code === "Digit3") selectCharacter(3);
+});
+selectCharacter(1);
 
 function animate() {
   requestAnimationFrame(animate);
@@ -150,7 +177,7 @@ function animate() {
 
     // Hit check
     if (dummy.visible && b.position.distanceTo(dummy.position) < 1.2) {
-      dummy.userData.health -= 20;
+      dummy.userData.health -= current.damage;
       dummy.material.color.setHex(0xffffff);
       setTimeout(() => dummy.material.color.setHex(0x3366ff), 80);
       scene.remove(b);

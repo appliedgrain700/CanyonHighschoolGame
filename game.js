@@ -30,6 +30,54 @@ const player = new THREE.Mesh(
 player.position.y = 1;
 scene.add(player);
 
+// ---------- UI: health bar, crosshair, death message ----------
+const healthBox = document.createElement("div");
+healthBox.style.cssText =
+  "position:fixed;bottom:20px;left:20px;width:250px;height:24px;background:#333;border:2px solid #fff;";
+const healthFill = document.createElement("div");
+healthFill.style.cssText = "height:100%;width:100%;background:#2ecc40;";
+healthBox.appendChild(healthFill);
+document.body.appendChild(healthBox);
+
+const crosshair = document.createElement("div");
+crosshair.style.cssText =
+  "position:fixed;top:50%;left:50%;width:8px;height:8px;margin:-4px 0 0 -4px;background:#fff;border:1px solid #000;border-radius:50%;";
+document.body.appendChild(crosshair);
+
+const deathMsg = document.createElement("div");
+deathMsg.textContent = "YOU DIED - respawning...";
+deathMsg.style.cssText =
+  "position:fixed;top:40%;width:100%;text-align:center;font:bold 40px sans-serif;color:#fff;text-shadow:2px 2px 4px #000;display:none;";
+document.body.appendChild(deathMsg);
+
+// ---------- Player health ----------
+let playerHealth = 100;
+let dead = false;
+
+function updateHealthBar() {
+  healthFill.style.width = playerHealth + "%";
+}
+
+function damagePlayer(amount) {
+  if (dead) return;
+  playerHealth -= amount;
+  if (playerHealth <= 0) {
+    playerHealth = 0;
+    dead = true;
+    player.visible = false;
+    deathMsg.style.display = "block";
+    setTimeout(() => {
+      playerHealth = 100;
+      dead = false;
+      player.position.set(0, 1, 0);
+      player.visible = true;
+      deathMsg.style.display = "none";
+      updateHealthBar();
+    }, 3000);
+  }
+  updateHealthBar();
+}
+
 // Keyboard
 const keys = {};
 addEventListener("keydown", (e) => (keys[e.code] = true));
@@ -51,11 +99,11 @@ addEventListener("mousemove", (e) => {
   if (document.pointerLockElement) yaw -= e.movementX * 0.003;
 });
 
-// Bullets
+// Your bullets
 const bullets = [];
 const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
 addEventListener("mousedown", () => {
-  if (!document.pointerLockElement) return;
+  if (!document.pointerLockElement || dead) return;
   const b = new THREE.Mesh(new THREE.SphereGeometry(0.15), bulletMat);
   b.position.copy(player.position);
   b.position.y = 1.5;
@@ -65,7 +113,12 @@ addEventListener("mousedown", () => {
   bullets.push(b);
 });
 
-// Target dummy
+// Enemy bullets
+const enemyBullets = [];
+const enemyBulletMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+let enemyTimer = 0;
+
+// Target dummy (now shoots back)
 const dummy = new THREE.Mesh(
   new THREE.BoxGeometry(1, 2, 1),
   new THREE.MeshStandardMaterial({ color: 0x3366ff })
@@ -80,15 +133,17 @@ function animate() {
   requestAnimationFrame(animate);
 
   // Move relative to where you're facing
-  const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
-  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-  if (keys.KeyW) player.position.addScaledVector(forward, speed);
-  if (keys.KeyS) player.position.addScaledVector(forward, -speed);
-  if (keys.KeyD) player.position.addScaledVector(right, speed);
-  if (keys.KeyA) player.position.addScaledVector(right, -speed);
+  if (!dead) {
+    const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+    if (keys.KeyW) player.position.addScaledVector(forward, speed);
+    if (keys.KeyS) player.position.addScaledVector(forward, -speed);
+    if (keys.KeyD) player.position.addScaledVector(right, speed);
+    if (keys.KeyA) player.position.addScaledVector(right, -speed);
+  }
   player.rotation.y = yaw;
 
-  // Move bullets
+  // Move your bullets
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
     b.position.addScaledVector(b.userData.dir, 0.8);
@@ -114,6 +169,41 @@ function animate() {
     if (b.userData.life <= 0) {
       scene.remove(b);
       bullets.splice(i, 1);
+    }
+  }
+
+  // Dummy shoots at you about every 1.5 seconds
+  enemyTimer++;
+  if (enemyTimer >= 90 && dummy.visible && !dead) {
+    enemyTimer = 0;
+    const eb = new THREE.Mesh(new THREE.SphereGeometry(0.2), enemyBulletMat);
+    eb.position.copy(dummy.position);
+    eb.position.y = 1.5;
+    const dir = new THREE.Vector3().subVectors(player.position, dummy.position);
+    dir.y = 0;
+    dir.normalize();
+    eb.userData.dir = dir;
+    eb.userData.life = 120;
+    scene.add(eb);
+    enemyBullets.push(eb);
+  }
+
+  // Move enemy bullets and check if they hit you
+  for (let i = enemyBullets.length - 1; i >= 0; i--) {
+    const eb = enemyBullets[i];
+    eb.position.addScaledVector(eb.userData.dir, 0.4);
+
+    if (!dead && eb.position.distanceTo(player.position) < 1.2) {
+      damagePlayer(10);
+      scene.remove(eb);
+      enemyBullets.splice(i, 1);
+      continue;
+    }
+
+    eb.userData.life--;
+    if (eb.userData.life <= 0) {
+      scene.remove(eb);
+      enemyBullets.splice(i, 1);
     }
   }
 

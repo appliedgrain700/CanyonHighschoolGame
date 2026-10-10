@@ -63,6 +63,7 @@ let lastShot = -99999;
 let lastDash = -99999;
 let lastGrenade = -99999;
 let yaw = 0;
+let pitch = 0;
 
 // ================= UI =================
 const healthBox = document.createElement("div");
@@ -223,7 +224,11 @@ renderer.domElement.addEventListener("click", () => {
   if (playing) renderer.domElement.requestPointerLock();
 });
 addEventListener("mousemove", (e) => {
-  if (document.pointerLockElement) yaw -= e.movementX * 0.003;
+    if (document.pointerLockElement) {
+    yaw -= e.movementX * 0.003;
+    pitch -= e.movementY * 0.003;
+    pitch = Math.max(-1, Math.min(1, pitch));
+  }
 });
 
 // ================= TARGET DUMMY =================
@@ -272,7 +277,12 @@ function shoot() {
     b.scale.set(0.8, 0.8, 0.8);
     b.position.set(player.position.x, 1.5, player.position.z);
     b.rotation.y = angle;
-    b.userData.dir = new THREE.Vector3(-Math.sin(angle), 0, -Math.cos(angle));
+        const ap = pitch + (Math.random() - 0.5) * 2 * current.spread;
+    b.userData.dir = new THREE.Vector3(
+      -Math.sin(angle) * Math.cos(ap),
+      Math.sin(ap),
+      -Math.cos(angle) * Math.cos(ap)
+    );
     b.userData.damage = current.damage;
     b.userData.life = 100;
     scene.add(b);
@@ -307,7 +317,7 @@ function throwGrenade() {
   lastGrenade = performance.now();
   const g = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 0.08), grenadeMat);
   g.position.set(player.position.x, 1.8, player.position.z);
-  g.userData.vel = new THREE.Vector3(-Math.sin(yaw) * 0.35, 0.25, -Math.cos(yaw) * 0.35);
+    g.userData.vel = new THREE.Vector3(-Math.sin(yaw) * 0.35, 0.25 + pitch * 0.3, -Math.cos(yaw) * 0.35);
   scene.add(g);
   grenades.push(g);
 }
@@ -363,7 +373,7 @@ function animate() {
     }
 
     b.userData.life--;
-    if (b.userData.life <= 0) {
+        if (b.userData.life <= 0 || b.position.y < 0) {
       scene.remove(b);
       bullets.splice(i, 1);
     }
@@ -423,12 +433,19 @@ function animate() {
     cooldownText("Grenade", "E", lastGrenade, current.grenadeCooldown);
 
   // Camera sits behind the player
+    const cp = Math.cos(pitch);
+  const sp = Math.sin(pitch);
+  const aimY = player.position.y + 0.5;
   camera.position.set(
-    player.position.x + Math.sin(yaw) * 8,
-    player.position.y + 4,
-    player.position.z + Math.cos(yaw) * 8
+    player.position.x + Math.sin(yaw) * cp * 8,
+    Math.max(0.5, aimY + 1.5 - sp * 8),
+    player.position.z + Math.cos(yaw) * cp * 8
   );
-  camera.lookAt(player.position.x, player.position.y + 1, player.position.z);
+  camera.lookAt(
+    player.position.x - Math.sin(yaw) * cp * 20,
+    aimY + sp * 20,
+    player.position.z - Math.cos(yaw) * cp * 20
+  );
 
   renderer.render(scene, camera);
 }

@@ -29,6 +29,151 @@ const player = new THREE.Mesh(
 player.position.y = 1;
 scene.add(player);
 
+// ================= MAP: FOOTBALL FIELD =================
+const texLoader = new THREE.TextureLoader();
+
+// Loads a photo onto a material. If the photo is missing, the plain color stays.
+function addPhoto(material, file, repeatX, repeatY) {
+  texLoader.load(file, (t) => {
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(repeatX, repeatY);
+    material.map = t;
+    material.color.setHex(0xffffff);
+    material.needsUpdate = true;
+  });
+}
+
+// ----- Football field (drawn on a canvas, then used as a texture) -----
+const END_COLOR = "#1a2a6c"; // end zone + banner color: change to your school color
+const fc = document.createElement("canvas");
+fc.width = 640;
+fc.height = 1440;
+const ctx = fc.getContext("2d");
+
+// grass stripes (each stripe = 10 yards)
+for (let i = 0; i < 12; i++) {
+  ctx.fillStyle = i % 2 === 0 ? "#2e8b3a" : "#3a9d47";
+  ctx.fillRect(0, i * 120, 640, 120);
+}
+// end zones
+ctx.fillStyle = END_COLOR;
+ctx.fillRect(0, 0, 640, 120);
+ctx.fillRect(0, 1320, 640, 120);
+// yard lines and sidelines
+ctx.fillStyle = "#ffffff";
+for (let i = 1; i < 12; i++) ctx.fillRect(0, i * 120 - 3, 640, 6);
+ctx.fillRect(0, 0, 8, 1440);
+ctx.fillRect(632, 0, 8, 1440);
+// end zone text
+ctx.font = "bold 80px sans-serif";
+ctx.textAlign = "center";
+ctx.textBaseline = "middle";
+ctx.fillText("COUGARS", 320, 60);
+ctx.fillText("COUGARS", 320, 1380);
+
+const fieldTex = new THREE.CanvasTexture(fc);
+fieldTex.colorSpace = THREE.SRGBColorSpace;
+fieldTex.anisotropy = 8;
+const field = new THREE.Mesh(
+  new THREE.PlaneGeometry(40, 90),
+  new THREE.MeshStandardMaterial({ map: fieldTex })
+);
+field.rotation.x = -Math.PI / 2;
+field.position.y = 0.02;
+scene.add(field);
+
+// Logo at midfield (only appears if logo.png exists)
+texLoader.load("logo.png", (t) => {
+  t.colorSpace = THREE.SRGBColorSpace;
+  const logo = new THREE.Mesh(
+    new THREE.PlaneGeometry(14, 14), // size of the logo
+    new THREE.MeshBasicMaterial({ map: t, transparent: true })
+  );
+  logo.rotation.x = -Math.PI / 2;
+  logo.position.y = 0.06;
+  scene.add(logo);
+});
+
+// Goalposts (just decoration, bullets pass through)
+const goldMat = new THREE.MeshStandardMaterial({ color: 0xffd700 });
+function makeGoalpost(z) {
+  const parts = [
+    [5.6, 0.2, 0.2, 0, 3],    // crossbar
+    [0.2, 5, 0.2, -2.8, 5.5], // left upright
+    [0.2, 5, 0.2, 2.8, 5.5],  // right upright
+    [0.2, 3, 0.2, 0, 1.5],    // base
+  ];
+  for (const [w, h, d, x, y] of parts) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), goldMat);
+    m.position.set(x, y, z);
+    scene.add(m);
+  }
+}
+makeGoalpost(-44);
+makeGoalpost(44);
+
+// ----- Walls and cover -----
+// x/z = center, w = width, d = depth, h = height (default 6), color = hex
+// Add  photo: "hall.jpg"  to any wall to put a photo on it.
+const walls = [
+  // fences around the field
+  { x: -23, z: 0, w: 2, d: 96, h: 6, color: 0x444444 },
+  { x: 23, z: 0, w: 2, d: 96, h: 6, color: 0x444444 },
+  { x: 0, z: -47, w: 48, d: 2, h: 6, color: 0x444444 },
+  { x: 0, z: 47, w: 48, d: 2, h: 6, color: 0x444444 },
+  // cover (equipment and benches)
+  { x: -10, z: -22, w: 5, d: 2, h: 3, color: 0x1a2a6c },
+  { x: 10, z: -22, w: 5, d: 2, h: 3, color: 0x1a2a6c },
+  { x: -10, z: 22, w: 5, d: 2, h: 3, color: 0x1a2a6c },
+  { x: 10, z: 22, w: 5, d: 2, h: 3, color: 0x1a2a6c },
+  { x: -14, z: 0, w: 2, d: 6, h: 3, color: 0x888888 },
+  { x: 14, z: 0, w: 2, d: 6, h: 3, color: 0x888888 },
+];
+
+const wallBoxes = [];
+for (const wall of walls) {
+  const h = wall.h || 6;
+  const mat = new THREE.MeshStandardMaterial({ color: wall.color || 0xd8d0c0 });
+  if (wall.photo) addPhoto(mat, wall.photo, 1, 1);
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(wall.w, h, wall.d), mat);
+  mesh.position.set(wall.x, h / 2, wall.z);
+  scene.add(mesh);
+  wallBoxes.push({
+    minX: wall.x - wall.w / 2,
+    maxX: wall.x + wall.w / 2,
+    minZ: wall.z - wall.d / 2,
+    maxZ: wall.z + wall.d / 2,
+    h: h,
+  });
+}
+
+// Stops the player from walking through walls
+function pushOutOfWalls(pos) {
+  const r = 0.6;
+  for (const b of wallBoxes) {
+    if (pos.x > b.minX - r && pos.x < b.maxX + r && pos.z > b.minZ - r && pos.z < b.maxZ + r) {
+      const left = pos.x - (b.minX - r);
+      const right = b.maxX + r - pos.x;
+      const up = pos.z - (b.minZ - r);
+      const down = b.maxZ + r - pos.z;
+      const m = Math.min(left, right, up, down);
+      if (m === left) pos.x = b.minX - r;
+      else if (m === right) pos.x = b.maxX + r;
+      else if (m === up) pos.z = b.minZ - r;
+      else pos.z = b.maxZ + r;
+    }
+  }
+}
+
+// True if a point (phone, grenade, enemy ball) is inside a wall
+function insideWall(p) {
+  for (const b of wallBoxes) {
+    if (p.x > b.minX && p.x < b.maxX && p.z > b.minZ && p.z < b.maxZ && p.y < b.h) return true;
+  }
+  return false;
+}
+
 // ================= CHARACTERS =================
 // Change these numbers to balance him. More teachers get added here later.
 const characters = {
@@ -40,8 +185,8 @@ const characters = {
     // Weapon: phone burst
     burst: 3,
     damage: 10,
-    fireDelay: 700, // ms between bursts
-    spread: 0.08, // bigger = phones spread out more
+    fireDelay: 800, // ms between bursts (0.8 seconds)
+    spread: 0.07, // angle between each phone: bigger = wider fan
     // Q: dash
     dashCooldown: 5000,
     dashDistance: 6,
@@ -99,6 +244,32 @@ helpText.textContent = "WASD move | Click shoot | Q dash | E grenade | C change 
 helpText.style.cssText =
   "position:fixed;top:10px;width:100%;text-align:center;font:14px sans-serif;color:#fff;text-shadow:1px 1px 2px #000;";
 document.body.appendChild(helpText);
+
+// ----- Kill banner (uses your cougar.png if you upload it) -----
+const banner = document.createElement("div");
+banner.style.cssText =
+  "position:fixed;top:14%;left:50%;transform:translateX(-50%) scale(0.6);display:flex;align-items:center;gap:16px;" +
+  "padding:10px 30px 10px 14px;background:linear-gradient(90deg," + END_COLOR + ",#b21f1f);" +
+  "border:3px solid #ffd700;border-radius:8px;color:#fff;font-family:sans-serif;opacity:0;" +
+  "transition:opacity 0.25s, transform 0.25s;pointer-events:none;z-index:5;";
+banner.innerHTML =
+  `<img src="cougar.png" style="height:70px;width:auto;" onerror="this.style.display='none'">` +
+  `<div><div style="font-size:34px;font-weight:bold;letter-spacing:3px;">ELIMINATION</div>` +
+  `<div id="bannerSub" style="font-size:16px;">Cougars win</div></div>`;
+document.body.appendChild(banner);
+const bannerSub = banner.querySelector("#bannerSub");
+let bannerTimer;
+
+function showKillBanner(victim) {
+  bannerSub.textContent = victim + " eliminated";
+  banner.style.opacity = "1";
+  banner.style.transform = "translateX(-50%) scale(1)";
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(() => {
+    banner.style.opacity = "0";
+    banner.style.transform = "translateX(-50%) scale(0.6)";
+  }, 2500);
+}
 
 function updateHealthBar() {
   healthFill.style.width = (playerHealth / maxHealth) * 100 + "%";
@@ -204,10 +375,7 @@ function damagePlayer(amount) {
 const keys = {};
 addEventListener("keydown", (e) => {
   keys[e.code] = true;
-  if (!playing || dead) {
-    if (e.code === "KeyC" && !playing) return;
-    return;
-  }
+  if (!playing || dead) return;
   if (e.code === "KeyQ") dash();
   if (e.code === "KeyE") throwGrenade();
   if (e.code === "KeyC") openSelectScreen();
@@ -224,7 +392,7 @@ renderer.domElement.addEventListener("click", () => {
   if (playing) renderer.domElement.requestPointerLock();
 });
 addEventListener("mousemove", (e) => {
-    if (document.pointerLockElement) {
+  if (document.pointerLockElement) {
     yaw -= e.movementX * 0.003;
     pitch -= e.movementY * 0.003;
     pitch = Math.max(-1, Math.min(1, pitch));
@@ -256,6 +424,7 @@ function damageDummy(amount) {
   setTimeout(() => dummy.material.color.setHex(0x3366ff), 80);
   if (dummy.userData.health <= 0) {
     dummy.visible = false;
+    showKillBanner("Blue Dummy"); // elimination banner
     setTimeout(() => {
       dummy.userData.health = DUMMY_MAX;
       dummyBar.scale.x = 1;
@@ -266,22 +435,39 @@ function damageDummy(amount) {
 
 // ================= MR. MAHONEY: PHONE BURST =================
 const bullets = [];
-const phoneTexture = new THREE.TextureLoader().load("phone.png");
+
+// Phones are flat pictures that fly like thrown cards
+const PHONE_SIZE = 0.9; // length of the phone: bigger = bigger phone
+const PHONE_SPIN = 0.4; // spin speed: 0 = no spin, bigger = faster
+let phoneAspect = 1; // set automatically from your picture
+const phoneTexture = texLoader.load("phone.png", (t) => {
+  phoneAspect = t.image.width / t.image.height;
+});
 phoneTexture.colorSpace = THREE.SRGBColorSpace;
-const phoneMat = new THREE.SpriteMaterial({ map: phoneTexture });
+const phoneMat = new THREE.MeshBasicMaterial({
+  map: phoneTexture,
+  transparent: true,
+  alphaTest: 0.05,
+  side: THREE.DoubleSide,
+});
+const phoneGeo = new THREE.PlaneGeometry(1, 1);
 
 function shoot() {
   for (let i = 0; i < current.burst; i++) {
-    const angle = yaw + (Math.random() - 0.5) * 2 * current.spread;
-        const b = new THREE.Sprite(phoneMat);
-    b.scale.set(0.8, 0.8, 0.8);
+    // Even spread: the phones fan out in a straight line, always the same gap
+    const offset = (i - (current.burst - 1) / 2) * current.spread;
+    const angle = yaw + offset;
+
+    const b = new THREE.Mesh(phoneGeo, phoneMat);
+    b.scale.set(PHONE_SIZE * phoneAspect, PHONE_SIZE, 1);
     b.position.set(player.position.x, 1.5, player.position.z);
-    b.rotation.y = angle;
-        const ap = pitch + (Math.random() - 0.5) * 2 * current.spread;
+    // Lay the phone flat like a thrown card, pointing the way it flies
+    b.rotation.set(-Math.PI / 2 + pitch, angle, 0, "YXZ");
+
     b.userData.dir = new THREE.Vector3(
-      -Math.sin(angle) * Math.cos(ap),
-      Math.sin(ap),
-      -Math.cos(angle) * Math.cos(ap)
+      -Math.sin(angle) * Math.cos(pitch),
+      Math.sin(pitch),
+      -Math.cos(angle) * Math.cos(pitch)
     );
     b.userData.damage = current.damage;
     b.userData.life = 100;
@@ -303,7 +489,10 @@ function dash() {
   if (performance.now() - lastDash < current.dashCooldown) return;
   lastDash = performance.now();
   const dir = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
-  player.position.addScaledVector(dir, current.dashDistance);
+  for (let i = 0; i < 12; i++) {
+    player.position.addScaledVector(dir, current.dashDistance / 12);
+    pushOutOfWalls(player.position);
+  }
   player.position.x = Math.max(-48, Math.min(48, player.position.x));
   player.position.z = Math.max(-48, Math.min(48, player.position.z));
 }
@@ -317,7 +506,7 @@ function throwGrenade() {
   lastGrenade = performance.now();
   const g = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 0.08), grenadeMat);
   g.position.set(player.position.x, 1.8, player.position.z);
-    g.userData.vel = new THREE.Vector3(-Math.sin(yaw) * 0.35, 0.25 + pitch * 0.3, -Math.cos(yaw) * 0.35);
+  g.userData.vel = new THREE.Vector3(-Math.sin(yaw) * 0.35, 0.25 + pitch * 0.3, -Math.cos(yaw) * 0.35);
   scene.add(g);
   grenades.push(g);
 }
@@ -358,12 +547,14 @@ function animate() {
     player.position.x = Math.max(-48, Math.min(48, player.position.x));
     player.position.z = Math.max(-48, Math.min(48, player.position.z));
   }
+  pushOutOfWalls(player.position);
   player.rotation.y = yaw;
 
   // Your phones
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
     b.position.addScaledVector(b.userData.dir, 0.8);
+    b.rotation.z += PHONE_SPIN; // card spin
 
     if (dummy.visible && b.position.distanceTo(dummy.position) < 1.2) {
       damageDummy(b.userData.damage);
@@ -373,7 +564,7 @@ function animate() {
     }
 
     b.userData.life--;
-        if (b.userData.life <= 0 || b.position.y < 0) {
+    if (b.userData.life <= 0 || b.position.y < 0 || insideWall(b.position)) {
       scene.remove(b);
       bullets.splice(i, 1);
     }
@@ -385,7 +576,7 @@ function animate() {
     g.userData.vel.y -= 0.012;
     g.position.add(g.userData.vel);
     g.rotation.x += 0.3;
-    if (g.position.y <= 0.2) {
+    if (g.position.y <= 0.2 || insideWall(g.position)) {
       explode(g.position);
       scene.remove(g);
       grenades.splice(i, 1);
@@ -420,7 +611,7 @@ function animate() {
     }
 
     eb.userData.life--;
-    if (eb.userData.life <= 0) {
+    if (eb.userData.life <= 0 || insideWall(eb.position)) {
       scene.remove(eb);
       enemyBullets.splice(i, 1);
     }
@@ -433,7 +624,7 @@ function animate() {
     cooldownText("Grenade", "E", lastGrenade, current.grenadeCooldown);
 
   // Camera sits behind the player
-    const cp = Math.cos(pitch);
+  const cp = Math.cos(pitch);
   const sp = Math.sin(pitch);
   const aimY = player.position.y + 0.5;
   camera.position.set(

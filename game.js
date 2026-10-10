@@ -45,7 +45,8 @@ function addPhoto(material, file, repeatX, repeatY) {
 }
 
 // ----- Football field (drawn on a canvas, then used as a texture) -----
-const END_COLOR = "#1a2a6c"; // end zone + banner color: change to your school color
+const END_COLOR = "#1a2a6c"; // kill banner + cover blocks
+const ENDZONE_COLOR = "#c8102e"; // end zones (red)
 const fc = document.createElement("canvas");
 fc.width = 640;
 fc.height = 1440;
@@ -57,7 +58,7 @@ for (let i = 0; i < 12; i++) {
   ctx.fillRect(0, i * 120, 640, 120);
 }
 // end zones
-ctx.fillStyle = END_COLOR;
+ctx.fillStyle = ENDZONE_COLOR;
 ctx.fillRect(0, 0, 640, 120);
 ctx.fillRect(0, 1320, 640, 120);
 // yard lines and sidelines
@@ -113,13 +114,30 @@ function makeGoalpost(z) {
 makeGoalpost(-44);
 makeGoalpost(44);
 
+// ----- Bleachers (decoration, outside the side fences) -----
+const bleacherColors = [0x9aa3ad, 0x7b858f];
+function makeBleachers(side) {
+  // side: -1 = left, 1 = right
+  for (let i = 0; i < 8; i++) {
+    const h = 1.2 * (i + 1); // each row is taller than the one before
+    const row = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6, h, 60),
+      new THREE.MeshStandardMaterial({ color: bleacherColors[i % 2] })
+    );
+    row.position.set(side * (24.8 + i * 1.6), h / 2, 0);
+    scene.add(row);
+  }
+}
+makeBleachers(-1);
+makeBleachers(1);
+
 // ----- Walls and cover -----
 // x/z = center, w = width, d = depth, h = height (default 6), color = hex
 // Add  photo: "hall.jpg"  to any wall to put a photo on it.
 const walls = [
-  // fences around the field
-  { x: -23, z: 0, w: 2, d: 96, h: 6, color: 0x444444 },
-  { x: 23, z: 0, w: 2, d: 96, h: 6, color: 0x444444 },
+  // fences around the field (side fences are low so you can see the bleachers)
+  { x: -23, z: 0, w: 2, d: 96, h: 2.5, color: 0x444444 },
+  { x: 23, z: 0, w: 2, d: 96, h: 2.5, color: 0x444444 },
   { x: 0, z: -47, w: 48, d: 2, h: 6, color: 0x444444 },
   { x: 0, z: 47, w: 48, d: 2, h: 6, color: 0x444444 },
   // cover (equipment and benches)
@@ -180,19 +198,20 @@ const characters = {
   mahoney: {
     name: "Mr. Mahoney",
     color: 0x8e44ad,
+    picture: "mahoney.png", // optional cutout photo of him (see notes)
     health: 275,
     speed: 0.15,
     // Weapon: phone burst
     burst: 3,
     damage: 10,
-    fireDelay: 800, // ms between bursts (0.8 seconds)
+    fireDelay: 450, // ms between bursts (smaller = faster)
     spread: 0.07, // angle between each phone: bigger = wider fan
     // Q: dash
     dashCooldown: 5000,
     dashDistance: 6,
     // E: phone grenade
     grenadeCooldown: 10000,
-    grenadeDamage: 60,
+    grenadeDamage: 125,
     grenadeRadius: 5,
   },
 };
@@ -201,6 +220,7 @@ let current = characters.mahoney;
 // ================= STATE =================
 let playing = false;
 let dead = false;
+let firstPerson = false;
 let maxHealth = current.health;
 let playerHealth = maxHealth;
 let speed = current.speed;
@@ -209,6 +229,34 @@ let lastDash = -99999;
 let lastGrenade = -99999;
 let yaw = 0;
 let pitch = 0;
+
+// ================= PLAYER LOOK (picture + first person) =================
+const BODY_HEIGHT = 2.2; // height of the cutout picture
+const bodySprite = new THREE.Sprite(new THREE.SpriteMaterial({ alphaTest: 0.05 }));
+bodySprite.visible = false;
+player.add(bodySprite);
+
+// Swaps the purple box for a cutout picture, if the picture exists
+function loadBodyPicture(file) {
+  bodySprite.visible = false;
+  player.material.visible = true;
+  if (!file) return;
+  texLoader.load(file, (t) => {
+    t.colorSpace = THREE.SRGBColorSpace;
+    bodySprite.material.map = t;
+    bodySprite.material.needsUpdate = true;
+    const aspect = t.image.width / t.image.height;
+    bodySprite.scale.set(BODY_HEIGHT * aspect, BODY_HEIGHT, 1);
+    bodySprite.position.y = BODY_HEIGHT / 2 - 1; // feet on the ground
+    bodySprite.visible = true;
+    player.material.visible = false;
+  });
+}
+
+// Hide your own body in first person or when dead
+function showPlayerModel() {
+  player.visible = !dead && !firstPerson;
+}
 
 // ================= UI =================
 const healthBox = document.createElement("div");
@@ -240,7 +288,8 @@ deathMsg.style.cssText =
 document.body.appendChild(deathMsg);
 
 const helpText = document.createElement("div");
-helpText.textContent = "WASD move | Click shoot | Q dash | E grenade | C change teacher";
+helpText.textContent =
+  "WASD move | Click/hold shoot | Q dash | E grenade | 7 camera | C change teacher";
 helpText.style.cssText =
   "position:fixed;top:10px;width:100%;text-align:center;font:14px sans-serif;color:#fff;text-shadow:1px 1px 2px #000;";
 document.body.appendChild(helpText);
@@ -316,7 +365,7 @@ for (const key in characters) {
       "Health: " + c.health + "<br>" +
       "Weapon: Phones (" + c.burst + " x " + c.damage + " dmg)<br>" +
       "Q: Dash<br>" +
-      "E: Phone Grenade" +
+      "E: Phone Grenade (" + c.grenadeDamage + " dmg)" +
       "</div>",
     false
   );
@@ -330,12 +379,14 @@ makeCard('<div style="font-size:24px;margin:80px 0;">Coming soon</div>', true);
 function selectCharacter(key) {
   current = characters[key];
   player.material.color.setHex(current.color);
+  loadBodyPicture(current.picture);
   maxHealth = current.health;
   playerHealth = maxHealth;
   speed = current.speed;
   lastShot = lastDash = lastGrenade = -99999;
+  dashFrames = 0;
   dead = false;
-  player.visible = true;
+  showPlayerModel();
   deathMsg.style.display = "none";
   player.position.set(0, 1, 0);
   updateHealthBar();
@@ -357,13 +408,14 @@ function damagePlayer(amount) {
   if (playerHealth <= 0) {
     playerHealth = 0;
     dead = true;
-    player.visible = false;
+    dashFrames = 0;
+    showPlayerModel();
     deathMsg.style.display = "block";
     setTimeout(() => {
       playerHealth = maxHealth;
       dead = false;
       player.position.set(0, 1, 0);
-      player.visible = true;
+      showPlayerModel();
       deathMsg.style.display = "none";
       updateHealthBar();
     }, 3000);
@@ -375,6 +427,13 @@ function damagePlayer(amount) {
 const keys = {};
 addEventListener("keydown", (e) => {
   keys[e.code] = true;
+
+  // 7 = switch between first person and third person
+  if (e.code === "Digit7" || e.code === "Numpad7") {
+    firstPerson = !firstPerson;
+    showPlayerModel();
+  }
+
   if (!playing || dead) return;
   if (e.code === "KeyQ") dash();
   if (e.code === "KeyE") throwGrenade();
@@ -454,21 +513,28 @@ const phoneGeo = new THREE.PlaneGeometry(1, 1);
 
 function shoot() {
   for (let i = 0; i < current.burst; i++) {
-    // Even spread: the phones fan out in a straight line, always the same gap
+    // Even spread: the phones fan out with the same gap every time
     const offset = (i - (current.burst - 1) / 2) * current.spread;
     const angle = yaw + offset;
 
-    const b = new THREE.Mesh(phoneGeo, phoneMat);
-    b.scale.set(PHONE_SIZE * phoneAspect, PHONE_SIZE, 1);
-    b.position.set(player.position.x, 1.5, player.position.z);
-    // Lay the phone flat like a thrown card, pointing the way it flies
-    b.rotation.set(-Math.PI / 2 + pitch, angle, 0, "YXZ");
-
-    b.userData.dir = new THREE.Vector3(
+    const dir = new THREE.Vector3(
       -Math.sin(angle) * Math.cos(pitch),
       Math.sin(pitch),
       -Math.cos(angle) * Math.cos(pitch)
     );
+
+    const b = new THREE.Mesh(phoneGeo, phoneMat);
+    b.scale.set(PHONE_SIZE * phoneAspect, PHONE_SIZE, 1);
+    // start a little in front of you so it doesn't cover the camera
+    b.position.set(
+      player.position.x + dir.x * 0.7,
+      1.5 + dir.y * 0.7,
+      player.position.z + dir.z * 0.7
+    );
+    // Lay the phone flat like a thrown card
+    b.rotation.set(-Math.PI / 2 + pitch, angle, 0, "YXZ");
+
+    b.userData.dir = dir;
     b.userData.damage = current.damage;
     b.userData.life = 100;
     scene.add(b);
@@ -476,37 +542,76 @@ function shoot() {
   }
 }
 
-addEventListener("mousedown", () => {
+// Click or hold the mouse to shoot
+let mouseHeld = false;
+function tryShoot() {
   if (!playing || dead || !document.pointerLockElement) return;
   const now = performance.now();
   if (now - lastShot < current.fireDelay) return;
   lastShot = now;
   shoot();
+}
+addEventListener("mousedown", () => {
+  mouseHeld = true;
+  tryShoot();
 });
+addEventListener("mouseup", () => (mouseHeld = false));
 
 // ================= MR. MAHONEY: DASH (Q) =================
+const DASH_FRAMES = 8; // how many frames the dash lasts
+const dashDir = new THREE.Vector3();
+let dashFrames = 0;
+
+const trails = [];
+const trailGeo = new THREE.SphereGeometry(0.45, 8, 8);
+function addTrailPuff(pos) {
+  const m = new THREE.Mesh(
+    trailGeo,
+    new THREE.MeshBasicMaterial({ color: 0xff2020, transparent: true, opacity: 0.7 })
+  );
+  m.position.set(pos.x, 1, pos.z);
+  m.userData.life = 30;
+  scene.add(m);
+  trails.push(m);
+}
+
 function dash() {
   if (performance.now() - lastDash < current.dashCooldown) return;
   lastDash = performance.now();
-  const dir = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
-  for (let i = 0; i < 12; i++) {
-    player.position.addScaledVector(dir, current.dashDistance / 12);
-    pushOutOfWalls(player.position);
-  }
-  player.position.x = Math.max(-48, Math.min(48, player.position.x));
-  player.position.z = Math.max(-48, Math.min(48, player.position.z));
+
+  // Dash the way you are MOVING (not where you look)
+  const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  dashDir.set(0, 0, 0);
+  if (keys.KeyW) dashDir.add(forward);
+  if (keys.KeyS) dashDir.sub(forward);
+  if (keys.KeyD) dashDir.add(right);
+  if (keys.KeyA) dashDir.sub(right);
+  if (dashDir.lengthSq() === 0) dashDir.copy(forward); // standing still: dash the way you face
+  dashDir.normalize();
+  dashFrames = DASH_FRAMES;
 }
 
 // ================= MR. MAHONEY: PHONE GRENADE (E) =================
 const grenades = [];
-const grenadeMat = new THREE.MeshBasicMaterial({ color: 0xe74c3c });
+const GRENADE_SIZE = 1.4; // size of the thrown phone
 
 function throwGrenade() {
   if (performance.now() - lastGrenade < current.grenadeCooldown) return;
   lastGrenade = performance.now();
-  const g = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.5, 0.08), grenadeMat);
-  g.position.set(player.position.x, 1.8, player.position.z);
-  g.userData.vel = new THREE.Vector3(-Math.sin(yaw) * 0.35, 0.25 + pitch * 0.3, -Math.cos(yaw) * 0.35);
+  const g = new THREE.Mesh(phoneGeo, phoneMat);
+  g.scale.set(GRENADE_SIZE * phoneAspect, GRENADE_SIZE, 1);
+  g.position.set(
+    player.position.x - Math.sin(yaw) * 0.8,
+    1.8,
+    player.position.z - Math.cos(yaw) * 0.8
+  );
+  // look up = throws farther, look down = throws shorter
+  g.userData.vel = new THREE.Vector3(
+    -Math.sin(yaw) * 0.3,
+    0.2 + pitch * 0.25,
+    -Math.cos(yaw) * 0.3
+  );
   scene.add(g);
   grenades.push(g);
 }
@@ -544,11 +649,36 @@ function animate() {
     if (keys.KeyS) player.position.addScaledVector(forward, -speed);
     if (keys.KeyD) player.position.addScaledVector(right, speed);
     if (keys.KeyA) player.position.addScaledVector(right, -speed);
+
+    // Dash glide + red trail
+    if (dashFrames > 0) {
+      dashFrames--;
+      player.position.addScaledVector(dashDir, current.dashDistance / DASH_FRAMES);
+      addTrailPuff(player.position);
+    }
+
     player.position.x = Math.max(-48, Math.min(48, player.position.x));
     player.position.z = Math.max(-48, Math.min(48, player.position.z));
+
+    // Hold the mouse to keep shooting
+    if (mouseHeld) tryShoot();
   }
   pushOutOfWalls(player.position);
   player.rotation.y = yaw;
+
+  // Fade out the dash trail
+  for (let i = trails.length - 1; i >= 0; i--) {
+    const t = trails[i];
+    t.userData.life--;
+    const k = t.userData.life / 30;
+    t.material.opacity = 0.7 * k;
+    t.scale.setScalar(0.4 + k * 0.6);
+    if (t.userData.life <= 0) {
+      scene.remove(t);
+      t.material.dispose();
+      trails.splice(i, 1);
+    }
+  }
 
   // Your phones
   for (let i = bullets.length - 1; i >= 0; i--) {
@@ -570,13 +700,15 @@ function animate() {
     }
   }
 
-  // Your grenades
+  // Your grenades (explode on the dummy, a wall, or the ground)
   for (let i = grenades.length - 1; i >= 0; i--) {
     const g = grenades[i];
     g.userData.vel.y -= 0.012;
     g.position.add(g.userData.vel);
-    g.rotation.x += 0.3;
-    if (g.position.y <= 0.2 || insideWall(g.position)) {
+    g.rotation.x += 0.25;
+    g.rotation.z += 0.2;
+    const hitDummy = dummy.visible && g.position.distanceTo(dummy.position) < 1.4;
+    if (hitDummy || g.position.y <= 0.2 || insideWall(g.position)) {
       explode(g.position);
       scene.remove(g);
       grenades.splice(i, 1);
@@ -623,20 +755,31 @@ function animate() {
     "<br>" +
     cooldownText("Grenade", "E", lastGrenade, current.grenadeCooldown);
 
-  // Camera sits behind the player
+  // Camera
   const cp = Math.cos(pitch);
   const sp = Math.sin(pitch);
-  const aimY = player.position.y + 0.5;
-  camera.position.set(
-    player.position.x + Math.sin(yaw) * cp * 8,
-    Math.max(0.5, aimY + 1.5 - sp * 8),
-    player.position.z + Math.cos(yaw) * cp * 8
-  );
-  camera.lookAt(
-    player.position.x - Math.sin(yaw) * cp * 20,
-    aimY + sp * 20,
-    player.position.z - Math.cos(yaw) * cp * 20
-  );
+  if (firstPerson) {
+    // first person: camera at his eyes
+    camera.position.set(player.position.x, player.position.y + 0.7, player.position.z);
+    camera.lookAt(
+      camera.position.x - Math.sin(yaw) * cp * 20,
+      camera.position.y + sp * 20,
+      camera.position.z - Math.cos(yaw) * cp * 20
+    );
+  } else {
+    // third person: camera sits behind the player
+    const aimY = player.position.y + 0.5;
+    camera.position.set(
+      player.position.x + Math.sin(yaw) * cp * 8,
+      Math.max(0.5, aimY + 1.5 - sp * 8),
+      player.position.z + Math.cos(yaw) * cp * 8
+    );
+    camera.lookAt(
+      player.position.x - Math.sin(yaw) * cp * 20,
+      aimY + sp * 20,
+      player.position.z - Math.cos(yaw) * cp * 20
+    );
+  }
 
   renderer.render(scene, camera);
 }

@@ -261,13 +261,15 @@ function damageDummy(amount) {
 
 // ================= MR. MAHONEY: PHONE BURST =================
 const bullets = [];
-const phoneGeo = new THREE.BoxGeometry(0.25, 0.06, 0.45);
-const phoneMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+const phoneTexture = new THREE.TextureLoader().load("phone.png");
+phoneTexture.colorSpace = THREE.SRGBColorSpace;
+const phoneMat = new THREE.SpriteMaterial({ map: phoneTexture });
 
 function shoot() {
   for (let i = 0; i < current.burst; i++) {
     const angle = yaw + (Math.random() - 0.5) * 2 * current.spread;
-    const b = new THREE.Mesh(phoneGeo, phoneMat);
+        const b = new THREE.Sprite(phoneMat);
+    b.scale.set(0.8, 0.8, 0.8);
     b.position.set(player.position.x, 1.5, player.position.z);
     b.rotation.y = angle;
     b.userData.dir = new THREE.Vector3(-Math.sin(angle), 0, -Math.cos(angle));
